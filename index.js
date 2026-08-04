@@ -136,6 +136,90 @@ function statsHeatmapCard(calendar, hovered, setHovered, range) {
     return statsCard("heatmap", "Listening activity", subtitle, body, "stats-card-wide");
 }
 
+function statsImportSummary(report) {
+    const parts = [
+        StatsFormat.number(report.imported) + " " + StatsFormat.plural(report.imported, "play", "plays") + " imported"
+    ];
+    if (report.duplicates) parts.push(StatsFormat.number(report.duplicates) + " already known");
+    if (report.tooShort) parts.push(StatsFormat.number(report.tooShort) + " under 30 seconds");
+    if (report.archived) parts.push(StatsFormat.number(report.archived) + " folded into monthly totals");
+    return parts.join(" · ");
+}
+
+function statsImportCard(state, onFiles) {
+    const body = [
+        statsEl(
+            "p",
+            { key: "intro", className: "stats-empty" },
+            "Spotify can send you your full listening history. Request it under Privacy Settings, then drop the " +
+                "JSON files from the export in here - both “Extended streaming history” and the smaller " +
+                "“Account data” export are understood."
+        ),
+        statsEl("label", { key: "picker", className: "stats-file" }, [
+            statsEl("input", {
+                key: "input",
+                type: "file",
+                accept: ".json,application/json",
+                multiple: true,
+                disabled: state.status === "reading",
+                onChange: (event) => onFiles(event.target.files)
+            }),
+            statsEl(
+                "span",
+                { key: "label", className: "stats-file-label" },
+                state.status === "reading" ? "Reading…" : "Choose JSON files"
+            )
+        ])
+    ];
+
+    if (state.status === "reading" && state.progress) {
+        body.push(
+            statsEl(
+                "p",
+                { key: "progress", className: "stats-empty" },
+                "Reading " + state.progress.file + " (" + (state.progress.index + 1) + " of " + state.progress.count + ")"
+            )
+        );
+    }
+
+    if (state.status === "done" && state.report) {
+        body.push(
+            statsEl("p", { key: "result", className: "stats-import-result" }, statsImportSummary(state.report))
+        );
+        if (state.report.failures && state.report.failures.length) {
+            body.push(
+                statsEl(
+                    "p",
+                    { key: "failures", className: "stats-error-message" },
+                    "Skipped files - " + state.report.failures.join("; ")
+                )
+            );
+        }
+        if (state.report.format === "basic") {
+            body.push(
+                statsEl(
+                    "p",
+                    { key: "note", className: "stats-empty" },
+                    "The Account data export carries no track links, so those plays are grouped by artist and title " +
+                        "and cannot merge with plays logged live."
+                )
+            );
+        }
+    }
+
+    if (state.status === "error") {
+        body.push(statsEl("p", { key: "error", className: "stats-error-message" }, state.message));
+    }
+
+    return statsCard(
+        "import",
+        "Import listening history",
+        "Everything stays on this machine, nothing is uploaded.",
+        body,
+        "stats-card-wide"
+    );
+}
+
 function statsFooter(snapshot, data) {
     const parts = [
         StatsFormat.number(data.rawCount) + " raw " + StatsFormat.plural(data.rawCount, "event", "events"),
@@ -174,6 +258,18 @@ function StatsApp() {
     const [rangeId, setRangeId] = React.useState(StatsAggregate.DEFAULT_RANGE);
     const [refresh, setRefresh] = React.useState(0);
     const [hovered, setHovered] = React.useState(null);
+    const [importState, setImportState] = React.useState({ status: "idle" });
+
+    function handleFiles(files) {
+        if (!files || !files.length) return;
+        setImportState({ status: "reading" });
+        StatsImport.importFiles(files, (progress) => setImportState({ status: "reading", progress: progress }))
+            .then((report) => {
+                setImportState({ status: "done", report: report });
+                setRefresh((value) => value + 1);
+            })
+            .catch((error) => setImportState({ status: "error", message: error.message || String(error) }));
+    }
 
     // The collector keeps writing while the app is open.
     React.useEffect(() => {
@@ -217,7 +313,11 @@ function StatsApp() {
     ]);
 
     if (!hasData) {
-        return statsEl("div", { className: "stats-app" }, [header, statsOnboarding()]);
+        return statsEl("div", { className: "stats-app" }, [
+            header,
+            statsOnboarding(),
+            statsImportCard(importState, handleFiles)
+        ]);
     }
 
     const tiles = statsEl("div", { key: "tiles", className: "stats-tiles" }, [
@@ -237,6 +337,7 @@ function StatsApp() {
         tiles,
         columns,
         statsHeatmapCard(calendar, hovered, setHovered, range),
+        statsImportCard(importState, handleFiles),
         statsFooter(snapshot, data)
     ]);
 }

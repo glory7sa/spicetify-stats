@@ -151,6 +151,47 @@
     line-height: 1.5;
 }
 
+.stats-file {
+    display: inline-block;
+    margin: 4px 0 4px;
+}
+
+/* The native control is kept in the DOM so it stays keyboard reachable. */
+.stats-file input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.stats-file-label {
+    display: inline-block;
+    padding: 9px 20px;
+    border-radius: 999px;
+    background-color: var(--spice-button);
+    color: var(--spice-main);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.stats-file input:disabled + .stats-file-label {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.stats-file input:focus-visible + .stats-file-label {
+    outline: 2px solid var(--spice-text);
+    outline-offset: 2px;
+}
+
+.stats-import-result {
+    margin: 12px 0 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
 .stats-error-message {
     margin: 0 0 12px;
     padding: 12px 14px;
