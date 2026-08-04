@@ -1,7 +1,13 @@
 /* Spicetify Stats - display formatting.
- * Shared by the views and the charts, kept locale aware where it is free.
+ *
+ * Dates and times use a fixed English format rather than the system locale,
+ * so the page reads the same on every machine and matches the English UI.
  */
 const StatsFormat = (function () {
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    // Monday first, the same order the heatmap grid uses.
+    const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
     function pad(value) {
         return String(value).padStart(2, "0");
     }
@@ -31,32 +37,27 @@ const StatsFormat = (function () {
         }
     }
 
+    // "12 Mar 2026"
     function date(ts) {
-        try {
-            return new Date(ts).toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "short",
-                year: "numeric"
-            });
-        } catch (e) {
-            return "";
-        }
+        const value = new Date(ts);
+        if (isNaN(value.getTime())) return "";
+        return value.getDate() + " " + MONTHS[value.getMonth()] + " " + value.getFullYear();
     }
 
+    // "12 Mar 2026, 19:55" - 24 hour, no seconds.
     function dateTime(ts) {
-        try {
-            return new Date(ts).toLocaleString();
-        } catch (e) {
-            return "";
-        }
+        const value = new Date(ts);
+        if (isNaN(value.getTime())) return "";
+        return date(ts) + ", " + pad(value.getHours()) + ":" + pad(value.getMinutes());
     }
 
     function monthName(monthIndex) {
-        try {
-            return new Date(2020, monthIndex, 1).toLocaleDateString(undefined, { month: "short" });
-        } catch (e) {
-            return String(monthIndex + 1);
-        }
+        return MONTHS[monthIndex] || "";
+    }
+
+    // Index 0 is Monday, matching the heatmap rows.
+    function weekdayName(weekdayIndex) {
+        return WEEKDAYS[weekdayIndex] || "";
     }
 
     function bytes(value) {
@@ -81,6 +82,7 @@ const StatsFormat = (function () {
         date: date,
         dateTime: dateTime,
         monthName: monthName,
+        weekdayName: weekdayName,
         bytes: bytes,
         clip: clip,
         plural: plural

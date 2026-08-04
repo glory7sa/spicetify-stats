@@ -129,13 +129,11 @@ function statsHeatmapCard(calendar, hovered, setHovered, range) {
         ])
     ];
 
-    return statsCard(
-        "heatmap",
-        "Listening activity",
-        "Shaded by listening time per day. Days outside the selected range stay dimmed.",
-        body,
-        "stats-card-wide"
-    );
+    const subtitle = range.days
+        ? "Listening time per day over the last " + range.days + " days."
+        : "Listening time per day across the whole raw history.";
+
+    return statsCard("heatmap", "Listening activity", subtitle, body, "stats-card-wide");
 }
 
 function statsFooter(snapshot, data) {
@@ -199,8 +197,8 @@ function StatsApp() {
         [snapshot, range.days]
     );
     const calendar = React.useMemo(
-        () => StatsAggregate.calendar(snapshot.events, data.from),
-        [snapshot, data.from]
+        () => StatsAggregate.calendar(snapshot.events, range),
+        [snapshot, range.days]
     );
 
     const listening = StatsFormat.durationParts(data.ms);

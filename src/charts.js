@@ -6,11 +6,14 @@
 const StatsCharts = (function () {
     const CHART_WIDTH = 720;
 
-    const CELL = 12;
-    const CELL_PITCH = 15;
-    const GRID_LEFT = 30;
-    const GRID_TOP = 22;
+    const CELL_MIN = 11;
+    const CELL_MAX = 34;
+    const CELL_GAP = 3;
     const LEVELS = 4;
+
+    // Legend cells keep the original size no matter how the grid scales.
+    const LEGEND_CELL = 12;
+    const LEGEND_PITCH = 15;
 
     function el(tag, props, children) {
         return Spicetify.React.createElement(tag, props, children);
@@ -133,55 +136,88 @@ const StatsCharts = (function () {
         );
     }
 
-    /* GitHub style contribution grid: columns are weeks, rows Monday-Sunday,
-     * shade by listening time. */
+    // Cells grow when the window is short, so a 30 day range does not end up
+    // as a postage stamp in a full width card.
+    function cellSize(columnCount, gutter) {
+        const size = Math.floor((CHART_WIDTH - gutter) / columnCount) - CELL_GAP;
+        return Math.max(CELL_MIN, Math.min(CELL_MAX, size));
+    }
+
+    /* GitHub style contribution grid. In "weeks" mode columns are weeks and
+     * rows run Monday to Sunday; in "days" mode every column is a single day.
+     * Both are the same grid maths, only the axis labels differ. */
     function heatmap(calendar, options) {
         const opts = options || {};
         const columns = calendar.columns;
-        const width = GRID_LEFT + columns.length * CELL_PITCH;
-        const height = GRID_TOP + 7 * CELL_PITCH;
+        const daysMode = calendar.mode === "days";
+
+        const gutter = daysMode ? 0 : 30;
+        const cell = cellSize(columns.length, gutter);
+        const pitch = cell + CELL_GAP;
+        const top = daysMode ? 32 : 22;
+
+        const width = gutter + columns.length * pitch;
+        const height = top + calendar.rows * pitch;
         const children = [];
 
-        // Month labels, skipped when they would collide with the previous one.
-        let lastMonth = -1;
-        let lastLabelColumn = -99;
-        columns.forEach((column, index) => {
-            const month = column[0].month;
-            if (month !== lastMonth && index - lastLabelColumn >= 3) {
+        if (daysMode) {
+            // One column per day: weekday over the date.
+            columns.forEach((column, index) => {
+                const day = column[0];
+                const x = index * pitch + cell / 2;
+                children.push(
+                    el(
+                        "text",
+                        { key: "wd" + index, className: "stats-heatmap-axis", x: x, y: 11, textAnchor: "middle" },
+                        StatsFormat.weekdayName(day.weekday)
+                    )
+                );
+                children.push(
+                    el(
+                        "text",
+                        { key: "dom" + index, className: "stats-heatmap-axis", x: x, y: 24, textAnchor: "middle" },
+                        String(day.dayOfMonth)
+                    )
+                );
+            });
+        } else {
+            // Month labels, skipped when they would collide with the previous.
+            let lastMonth = -1;
+            let lastLabelX = -999;
+            columns.forEach((column, index) => {
+                const month = column[0].month;
+                const x = gutter + index * pitch;
+                if (month !== lastMonth && x - lastLabelX >= 30) {
+                    children.push(
+                        el(
+                            "text",
+                            { key: "month" + index, className: "stats-heatmap-axis", x: x, y: 10 },
+                            StatsFormat.monthName(month)
+                        )
+                    );
+                    lastLabelX = x;
+                }
+                lastMonth = month;
+            });
+
+            [0, 2, 4].forEach((row) => {
                 children.push(
                     el(
                         "text",
                         {
-                            key: "month" + index,
+                            key: "weekday" + row,
                             className: "stats-heatmap-axis",
-                            x: GRID_LEFT + index * CELL_PITCH,
-                            y: 10
+                            x: 0,
+                            y: top + row * pitch + cell / 2 + 3
                         },
-                        StatsFormat.monthName(month)
+                        StatsFormat.weekdayName(row)
                     )
                 );
-                lastLabelColumn = index;
-            }
-            lastMonth = month;
-        });
+            });
+        }
 
-        ["Mon", "Wed", "Fri"].forEach((label, index) => {
-            children.push(
-                el(
-                    "text",
-                    {
-                        key: "weekday" + label,
-                        className: "stats-heatmap-axis",
-                        x: 0,
-                        y: GRID_TOP + index * 2 * CELL_PITCH + CELL - 2
-                    },
-                    label
-                )
-            );
-        });
-
-        columns.forEach((column, weekIndex) => {
-            column.forEach((day, dayIndex) => {
+        columns.forEach((column, columnIndex) => {
+            column.forEach((day, rowIndex) => {
                 if (day.future) return;
 
                 const shade = level(day.ms, calendar.max);
@@ -204,11 +240,11 @@ const StatsCharts = (function () {
                         {
                             key: day.ts,
                             className: classes.join(" "),
-                            x: GRID_LEFT + weekIndex * CELL_PITCH,
-                            y: GRID_TOP + dayIndex * CELL_PITCH,
-                            width: CELL,
-                            height: CELL,
-                            rx: 2.5,
+                            x: gutter + columnIndex * pitch,
+                            y: top + rowIndex * pitch,
+                            width: cell,
+                            height: cell,
+                            rx: Math.min(4, cell / 4),
                             onMouseEnter: opts.onHover ? () => opts.onHover(day) : undefined
                         },
                         el("title", null, tooltip)
@@ -239,21 +275,22 @@ const StatsCharts = (function () {
                 el("rect", {
                     key: shade,
                     className: "stats-cell stats-cell-" + shade,
-                    x: shade * CELL_PITCH,
+                    x: shade * LEGEND_PITCH,
                     y: 0,
-                    width: CELL,
-                    height: CELL,
+                    width: LEGEND_CELL,
+                    height: LEGEND_CELL,
                     rx: 2.5
                 })
             );
         }
+        const width = LEVELS * LEGEND_PITCH + LEGEND_CELL;
         return el(
             "svg",
             {
                 className: "stats-legend-grid",
-                viewBox: "0 0 " + (LEVELS * CELL_PITCH + CELL) + " " + CELL,
-                width: LEVELS * CELL_PITCH + CELL,
-                height: CELL,
+                viewBox: "0 0 " + width + " " + LEGEND_CELL,
+                width: width,
+                height: LEGEND_CELL,
                 "aria-hidden": "true"
             },
             cells

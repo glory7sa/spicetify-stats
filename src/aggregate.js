@@ -12,7 +12,11 @@ const StatsAggregate = (function () {
         { id: "all", label: "All time", days: null }
     ];
 
-    const HEATMAP_WEEKS = 53;
+    const HEATMAP_MAX_WEEKS = 53;
+    const HEATMAP_MIN_WEEKS = 4;
+    // At or below this the week grid degenerates into one or two columns, so
+    // the days are laid out as a single row instead.
+    const HEATMAP_DAYS_MODE_MAX = 21;
     const TOP_LIMIT = 10;
     const DEFAULT_RANGE = "30d";
 
@@ -180,58 +184,105 @@ const StatsAggregate = (function () {
         return daily;
     }
 
-    /* The heatmap always draws the same window so the grid does not jump when
-     * the range changes; days outside the selected range are flagged and the
-     * view mutes them. Columns are weeks, rows are Monday through Sunday. */
-    function calendar(events, from, weeks) {
-        const columnCount = weeks || HEATMAP_WEEKS;
+    function mondayOf(ts) {
+        const date = new Date(ts);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+        return date;
+    }
+
+    // Both arguments are local Mondays, so rounding absorbs the hour a
+    // daylight saving switch adds or removes.
+    function weeksBetween(start, end) {
+        return Math.round((end.getTime() - start.getTime()) / (7 * 86400000)) + 1;
+    }
+
+    /* The heatmap window follows the selected range: a week grid (columns are
+     * weeks, rows Monday through Sunday) for anything longer than three weeks,
+     * a single row of days for the short ranges. "All time" spans the actual
+     * raw history, capped at a year. */
+    function calendar(events, range) {
+        const days = range && range.days ? range.days : null;
+        const from = rangeStart(days);
         const daily = dailyBuckets(events);
         const today = startOfDay(Date.now());
 
-        const cursor = new Date(today);
-        const weekday = (cursor.getDay() + 6) % 7; // Monday = 0
-        cursor.setDate(cursor.getDate() - weekday - (columnCount - 1) * 7);
-
-        const columns = [];
-        let max = 0;
-        let rangeMs = 0;
-        let rangeDays = 0;
-
-        for (let week = 0; week < columnCount; week++) {
-            const column = [];
-            for (let day = 0; day < 7; day++) {
-                const ts = cursor.getTime();
-                const bucket = daily.get(dayKey(ts));
-                const future = ts > today;
-                const entry = {
-                    ts: ts,
-                    month: cursor.getMonth(),
-                    dayOfMonth: cursor.getDate(),
-                    plays: bucket ? bucket.plays : 0,
-                    ms: bucket ? bucket.ms : 0,
-                    future: future,
-                    inRange: !future && (from === null || ts >= from)
-                };
-
-                if (!future && entry.ms > max) max = entry.ms;
-                if (entry.inRange && entry.plays > 0) {
-                    rangeMs += entry.ms;
-                    rangeDays += 1;
-                }
-
-                column.push(entry);
-                cursor.setDate(cursor.getDate() + 1);
-            }
-            columns.push(column);
+        function entryAt(ts) {
+            const date = new Date(ts);
+            const bucket = daily.get(dayKey(ts));
+            const future = ts > today;
+            return {
+                ts: ts,
+                month: date.getMonth(),
+                dayOfMonth: date.getDate(),
+                weekday: (date.getDay() + 6) % 7,
+                plays: bucket ? bucket.plays : 0,
+                ms: bucket ? bucket.ms : 0,
+                future: future,
+                inRange: !future && (from === null || ts >= from)
+            };
         }
 
-        return { columns: columns, max: max, activeDays: rangeDays, activeMs: rangeMs };
+        const columns = [];
+        const daysMode = days !== null && days <= HEATMAP_DAYS_MODE_MAX;
+
+        if (daysMode) {
+            const cursor = new Date(from);
+            for (let day = 0; day < days; day++) {
+                columns.push([entryAt(cursor.getTime())]);
+                cursor.setDate(cursor.getDate() + 1);
+            }
+        } else {
+            const lastMonday = mondayOf(today);
+            let weeks;
+            if (days !== null) {
+                weeks = weeksBetween(mondayOf(from), lastMonday);
+            } else {
+                const first = events.length ? events[0].ts : today;
+                weeks = weeksBetween(mondayOf(first), lastMonday);
+            }
+            weeks = Math.max(HEATMAP_MIN_WEEKS, Math.min(HEATMAP_MAX_WEEKS, weeks));
+
+            const cursor = mondayOf(today);
+            cursor.setDate(cursor.getDate() - (weeks - 1) * 7);
+            for (let week = 0; week < weeks; week++) {
+                const column = [];
+                for (let row = 0; row < 7; row++) {
+                    column.push(entryAt(cursor.getTime()));
+                    cursor.setDate(cursor.getDate() + 1);
+                }
+                columns.push(column);
+            }
+        }
+
+        let max = 0;
+        let activeMs = 0;
+        let activeDays = 0;
+        for (const column of columns) {
+            for (const entry of column) {
+                if (!entry.future && entry.ms > max) max = entry.ms;
+                if (entry.inRange && entry.plays > 0) {
+                    activeMs += entry.ms;
+                    activeDays += 1;
+                }
+            }
+        }
+
+        return {
+            mode: daysMode ? "days" : "weeks",
+            rows: daysMode ? 1 : 7,
+            columns: columns,
+            from: from,
+            max: max,
+            activeDays: activeDays,
+            activeMs: activeMs
+        };
     }
 
     return {
         RANGES: RANGES,
         DEFAULT_RANGE: DEFAULT_RANGE,
-        HEATMAP_WEEKS: HEATMAP_WEEKS,
+        HEATMAP_MAX_WEEKS: HEATMAP_MAX_WEEKS,
         rangeById: rangeById,
         rangeStart: rangeStart,
         dayKey: dayKey,
