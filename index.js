@@ -221,15 +221,47 @@ function statsImportCard(state, onFiles) {
 }
 
 function statsFooter(snapshot, data) {
-    const parts = [
-        StatsFormat.number(data.rawCount) + " raw " + StatsFormat.plural(data.rawCount, "event", "events"),
-        StatsFormat.bytes(snapshot.bytes) + " stored",
-        "schema v" + snapshot.version
-    ];
-    if (data.archivedPlays) {
-        parts.splice(1, 0, StatsFormat.number(data.archivedPlays) + " archived plays in monthly aggregates");
+    const monthKeys = Object.keys(snapshot.months);
+    let archivedPlays = 0;
+    for (const key of monthKeys) archivedPlays += (snapshot.months[key] && snapshot.months[key].plays) || 0;
+
+    const parts = [StatsFormat.number(data.rawCount) + " raw " + StatsFormat.plural(data.rawCount, "event", "events")];
+    if (archivedPlays) {
+        parts.push(
+            StatsFormat.number(archivedPlays) +
+                " archived across " +
+                monthKeys.length +
+                " " +
+                StatsFormat.plural(monthKeys.length, "month", "months")
+        );
     }
+    parts.push(StatsFormat.bytes(snapshot.bytes) + " stored", "schema v" + snapshot.version);
+
     return statsEl("p", { key: "footer", className: "stats-footer" }, parts.join(" · "));
+}
+
+// Storage has never been touched: the extension is not running at all, which
+// is a different problem from having simply not listened to anything yet.
+function statsCollectorMissing() {
+    return statsCard(
+        "collector",
+        "The collector has not run yet",
+        null,
+        [
+            statsEl(
+                "p",
+                { key: "line1", className: "stats-empty" },
+                "extension.js writes the play log, and it has not touched storage on this machine. It is registered " +
+                    "through this app's manifest, so it starts together with Spotify."
+            ),
+            statsEl(
+                "p",
+                { key: "line2", className: "stats-empty" },
+                "Run spicetify apply and restart Spotify. Importing an export below works either way."
+            )
+        ],
+        "stats-card-wide"
+    );
 }
 
 function statsOnboarding() {
@@ -247,6 +279,23 @@ function statsOnboarding() {
                 "p",
                 { key: "line2", className: "stats-empty" },
                 "Podcasts, local files and ads are skipped on purpose. Play something and this page fills up on its own."
+            )
+        ],
+        "stats-card-wide"
+    );
+}
+
+// History exists, just not inside the picked window.
+function statsRangeEmpty(range) {
+    return statsCard(
+        "range-empty",
+        range.days ? "Nothing played in the last " + range.days + " days" : "Nothing played yet",
+        null,
+        [
+            statsEl(
+                "p",
+                { key: "hint", className: "stats-empty" },
+                "Your history is not empty - pick a longer range above to see it."
             )
         ],
         "stats-card-wide"
@@ -289,7 +338,8 @@ function StatsApp() {
             events: StatsStore.readEvents(),
             months: StatsStore.readMonths(),
             version: StatsStore.readVersion(),
-            bytes: StatsStore.usedBytes()
+            bytes: StatsStore.usedBytes(),
+            initialised: StatsStore.isInitialised()
         }),
         [refresh]
     );
@@ -306,7 +356,9 @@ function StatsApp() {
     );
 
     const listening = StatsFormat.durationParts(data.ms);
-    const hasData = data.rawCount > 0 || data.archivedPlays > 0;
+    // Whether anything is stored at all, independent of the picked range - an
+    // import can leave every play in the monthly rollups and none in the log.
+    const hasData = snapshot.events.length > 0 || Object.keys(snapshot.months).length > 0;
 
     const header = statsEl("header", { key: "header", className: "stats-header" }, [
         statsEl("div", { key: "titles" }, [
@@ -323,7 +375,7 @@ function StatsApp() {
     if (!hasData) {
         return statsEl("div", { className: "stats-app" }, [
             header,
-            statsOnboarding(),
+            snapshot.initialised ? statsOnboarding() : statsCollectorMissing(),
             statsImportCard(importState, handleFiles)
         ]);
     }
@@ -335,10 +387,12 @@ function StatsApp() {
         statsTile("tracks", StatsFormat.number(data.trackCount), null, "different tracks")
     ]);
 
-    const columns = statsEl("div", { key: "columns", className: "stats-columns" }, [
-        statsCard("artists", "Top artists", "Ranked by plays, hover for listening time.", statsTopArtists(data)),
-        statsCard("tracks", "Top tracks", "Ranked by plays, hover for listening time.", statsTopTracks(data))
-    ]);
+    const columns = data.plays
+        ? statsEl("div", { key: "columns", className: "stats-columns" }, [
+              statsCard("artists", "Top artists", "Ranked by plays, hover for listening time.", statsTopArtists(data)),
+              statsCard("tracks", "Top tracks", "Ranked by plays, hover for listening time.", statsTopTracks(data))
+          ])
+        : statsRangeEmpty(range);
 
     return statsEl("div", { className: "stats-app" }, [
         header,
