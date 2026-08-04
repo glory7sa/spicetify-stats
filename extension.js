@@ -1,0 +1,294 @@
+/* Spicetify Stats - collector.
+ *
+ * Registered as `subfiles_extension`, so this runs on every Spotify start,
+ * no matter whether the custom app is open in the sidebar. It is the only
+ * writer of the `spicetify-stats:` keys; the viewer (index.js) only reads.
+ * Both share no scope - localStorage is the single bridge between them.
+ */
+(function statsCollector() {
+    if (window.__spicetifyStatsCollector) return;
+    window.__spicetifyStatsCollector = true;
+
+    const PREFIX = "spicetify-stats:";
+    const KEY_VERSION = PREFIX + "version";
+    const KEY_EVENTS = PREFIX + "events";
+    const KEY_AGGREGATES = PREFIX + "aggregates";
+
+    const SCHEMA_VERSION = 1;
+
+    // A track only counts as played after 30s or half its length, whichever
+    // comes first - otherwise skipping through a playlist skews everything.
+    const MIN_PLAY_MS = 30000;
+    const MIN_PLAY_RATIO = 0.5;
+
+    const TICK_MS = 1000;
+
+    // localStorage is small, so raw events are kept for half a year and then
+    // folded into monthly aggregates.
+    const RAW_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
+    const RAW_MAX_EVENTS = 20000;
+    const AGGREGATE_TOP_N = 100;
+
+    /* ---------------------------------------------------------------- storage */
+
+    function readJSON(key, fallback) {
+        try {
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw) : fallback;
+        } catch (e) {
+            // Corrupted entry - start over rather than break playback logging.
+            return fallback;
+        }
+    }
+
+    function writeJSON(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    let quotaWarned = false;
+
+    function notify(text) {
+        try {
+            Spicetify.showNotification(text);
+        } catch (e) {
+            /* notifications are best effort */
+        }
+    }
+
+    function ensureSchema() {
+        const stored = Number(localStorage.getItem(KEY_VERSION));
+        if (stored === SCHEMA_VERSION) return;
+        // Newer schema than this build knows: leave the data untouched.
+        if (stored > SCHEMA_VERSION) return;
+        // Future migrations for stored < SCHEMA_VERSION hook in here.
+        localStorage.setItem(KEY_VERSION, String(SCHEMA_VERSION));
+    }
+
+    /* ------------------------------------------------------------ aggregation */
+
+    function monthKey(timestamp) {
+        const date = new Date(timestamp);
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        return date.getFullYear() + "-" + month;
+    }
+
+    function trimMap(map, limit, score) {
+        const entries = Object.entries(map);
+        if (entries.length <= limit) return map;
+        entries.sort((a, b) => score(b[1]) - score(a[1]));
+        return Object.fromEntries(entries.slice(0, limit));
+    }
+
+    // Folds raw events into per-month buckets so the details can be dropped.
+    function foldIntoAggregates(events) {
+        if (!events.length) return;
+        const aggregates = readJSON(KEY_AGGREGATES, {});
+
+        for (const event of events) {
+            const key = monthKey(event.ts);
+            let bucket = aggregates[key];
+            if (!bucket) {
+                bucket = aggregates[key] = { plays: 0, ms: 0, artists: {}, tracks: {} };
+            }
+
+            bucket.plays += 1;
+            bucket.ms += event.playedMs || 0;
+
+            for (const artist of event.artists || []) {
+                bucket.artists[artist.name] = (bucket.artists[artist.name] || 0) + 1;
+            }
+
+            let track = bucket.tracks[event.uri];
+            if (!track) {
+                track = bucket.tracks[event.uri] = {
+                    title: event.title,
+                    artist: (event.artists && event.artists[0] && event.artists[0].name) || "",
+                    plays: 0
+                };
+            }
+            track.plays += 1;
+        }
+
+        for (const key of Object.keys(aggregates)) {
+            aggregates[key].artists = trimMap(aggregates[key].artists, AGGREGATE_TOP_N, (v) => v);
+            aggregates[key].tracks = trimMap(aggregates[key].tracks, AGGREGATE_TOP_N, (v) => v.plays);
+        }
+
+        writeJSON(KEY_AGGREGATES, aggregates);
+    }
+
+    // Returns the events worth keeping raw; everything else goes to aggregates.
+    function compactEvents(events, aggressive) {
+        const cutoff = Date.now() - RAW_MAX_AGE_MS;
+        const keep = [];
+        let expired = [];
+
+        for (const event of events) {
+            if (event && event.ts >= cutoff) keep.push(event);
+            else if (event) expired.push(event);
+        }
+
+        // Events are appended chronologically, so the front is the oldest.
+        const limit = aggressive ? Math.floor(RAW_MAX_EVENTS / 2) : RAW_MAX_EVENTS;
+        if (keep.length > limit) {
+            expired = expired.concat(keep.splice(0, keep.length - limit));
+        }
+
+        foldIntoAggregates(expired);
+        return keep;
+    }
+
+    function appendEvent(event) {
+        let events = readJSON(KEY_EVENTS, []);
+        if (!Array.isArray(events)) events = [];
+        events.push(event);
+        events = compactEvents(events, false);
+
+        if (writeJSON(KEY_EVENTS, events)) return;
+
+        // Quota hit: aggregate away the older half and retry once.
+        events = compactEvents(events, true);
+        if (writeJSON(KEY_EVENTS, events)) return;
+
+        if (!quotaWarned) {
+            quotaWarned = true;
+            notify("Stats: localStorage is full, play events are not being saved.");
+        }
+    }
+
+    /* ------------------------------------------------------------ track model */
+
+    function readArtists(item, meta) {
+        if (Array.isArray(item.artists) && item.artists.length) {
+            return item.artists
+                .filter(Boolean)
+                .map((artist) => ({ name: artist.name || "Unknown", uri: artist.uri || "" }));
+        }
+
+        // Older player payloads expose artist_name, artist_name:1, artist_name:2 ...
+        const artists = [];
+        for (let i = 0; ; i++) {
+            const nameKey = i === 0 ? "artist_name" : "artist_name:" + i;
+            const uriKey = i === 0 ? "artist_uri" : "artist_uri:" + i;
+            if (!meta[nameKey]) break;
+            artists.push({ name: meta[nameKey], uri: meta[uriKey] || "" });
+        }
+        return artists;
+    }
+
+    function readTrack(item) {
+        if (!item) return null;
+
+        const meta = item.metadata || {};
+        const uri = item.uri || meta.uri || "";
+        const type = item.type || uri.split(":")[1] || "";
+        // Podcasts and ads are not part of the listening stats.
+        if (type !== "track" && type !== "local") return null;
+
+        let durationMs = Number(
+            (item.duration && item.duration.milliseconds) != null
+                ? item.duration.milliseconds
+                : meta.duration
+        );
+        if (!Number.isFinite(durationMs) || durationMs <= 0) {
+            durationMs = Number(Spicetify.Player.getDuration()) || 0;
+        }
+
+        return {
+            uri: uri,
+            title: item.name || meta.title || "Unknown",
+            artists: readArtists(item, meta),
+            album: (item.album && item.album.name) || meta.album_title || "",
+            durationMs: durationMs
+        };
+    }
+
+    function playThreshold(durationMs) {
+        if (!durationMs) return MIN_PLAY_MS;
+        return Math.min(MIN_PLAY_MS, durationMs * MIN_PLAY_RATIO);
+    }
+
+    /* ---------------------------------------------------------------- session */
+
+    let session = null;
+
+    function progressMs() {
+        const progress = Number(Spicetify.Player.getProgress());
+        return Number.isFinite(progress) && progress > 0 ? progress : 0;
+    }
+
+    function startSession(item) {
+        const track = readTrack(item);
+        session = track
+            ? { track: track, playedMs: 0, lastTick: Date.now(), lastProgress: progressMs(), logged: false }
+            : null;
+    }
+
+    function logSession() {
+        appendEvent({
+            ts: Date.now(),
+            uri: session.track.uri,
+            title: session.track.title,
+            artists: session.track.artists,
+            album: session.track.album,
+            durationMs: session.track.durationMs,
+            playedMs: Math.round(session.playedMs)
+        });
+    }
+
+    // Playback progress instead of wall clock: a paused player does not
+    // advance, and clamping to the elapsed wall time discards forward seeks.
+    // Suspending the machine or a throttled timer stay correct that way too.
+    function tick() {
+        if (!session) return;
+
+        const now = Date.now();
+        const progress = progressMs();
+        const wallDelta = now - session.lastTick;
+        const progressDelta = progress - session.lastProgress;
+
+        session.lastTick = now;
+        session.lastProgress = progress;
+
+        if (session.logged) return;
+        if (progressDelta <= 0 || wallDelta <= 0) return;
+
+        session.playedMs += Math.min(progressDelta, wallDelta);
+        if (session.playedMs >= playThreshold(session.track.durationMs)) {
+            // Written the moment the threshold is crossed, so a hard quit of
+            // Spotify cannot lose a play that already counted.
+            session.logged = true;
+            logSession();
+        }
+    }
+
+    /* ------------------------------------------------------------------- boot */
+
+    async function main() {
+        while (!(window.Spicetify && Spicetify.Player && Spicetify.Player.addEventListener && Spicetify.showNotification)) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        ensureSchema();
+
+        Spicetify.Player.addEventListener("songchange", (event) => {
+            const data = event && event.data;
+            const item = (data && (data.item || data.track)) || (Spicetify.Player.data && Spicetify.Player.data.item);
+            startSession(item);
+        });
+
+        // Something may already be playing when the extension loads.
+        if (Spicetify.Player.data && Spicetify.Player.data.item) {
+            startSession(Spicetify.Player.data.item);
+        }
+
+        setInterval(tick, TICK_MS);
+    }
+
+    main();
+})();

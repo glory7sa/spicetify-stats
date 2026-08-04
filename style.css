@@ -1,0 +1,50 @@
+/* Spicetify Stats - styles.
+ * Semantic colors only, so the app follows whatever theme is active.
+ */
+
+.stats-app {
+    padding: 32px 32px 64px;
+    color: var(--spice-text);
+}
+
+.stats-title {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.stats-subtitle {
+    margin: 4px 0 24px;
+    color: var(--spice-subtext);
+    font-size: 0.875rem;
+}
+
+.stats-card {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 20px 24px;
+    border-radius: 8px;
+    background-color: var(--spice-card);
+}
+
+.stats-metric-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.stats-metric-label {
+    color: var(--spice-subtext);
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.stats-hint {
+    margin: 16px 0 0;
+    color: var(--spice-subtext);
+    font-size: 0.875rem;
+}
