@@ -169,18 +169,38 @@ const StatsAggregate = (function () {
         };
     }
 
+    /* Hot path: this runs over the whole raw log. Building a Date per event
+     * dominated the render, so the current day's bounds are carried along and
+     * only recomputed when an event falls outside them. Events arrive sorted,
+     * which makes that one Date per day; out of order input still lands in the
+     * right bucket, it just recomputes more often. */
     function dailyBuckets(events) {
         const daily = new Map();
+        let dayStart = Infinity;
+        let dayEnd = -Infinity;
+        let bucket = null;
+
         for (const event of events) {
-            const key = dayKey(event.ts);
-            let bucket = daily.get(key);
-            if (!bucket) {
-                bucket = { plays: 0, ms: 0 };
-                daily.set(key, bucket);
+            const ts = event.ts;
+            if (ts < dayStart || ts >= dayEnd) {
+                const date = new Date(ts);
+                date.setHours(0, 0, 0, 0);
+                dayStart = date.getTime();
+                const key = dayKey(dayStart);
+                // setDate keeps this right across daylight saving switches.
+                date.setDate(date.getDate() + 1);
+                dayEnd = date.getTime();
+
+                bucket = daily.get(key);
+                if (!bucket) {
+                    bucket = { plays: 0, ms: 0 };
+                    daily.set(key, bucket);
+                }
             }
             bucket.plays += 1;
             bucket.ms += event.playedMs || 0;
         }
+
         return daily;
     }
 
@@ -201,10 +221,12 @@ const StatsAggregate = (function () {
      * weeks, rows Monday through Sunday) for anything longer than three weeks,
      * a single row of days for the short ranges. "All time" spans the actual
      * raw history, capped at a year. */
-    function calendar(events, range) {
+    function calendar(events, range, precomputedDaily) {
         const days = range && range.days ? range.days : null;
         const from = rangeStart(days);
-        const daily = dailyBuckets(events);
+        // The per-day rollup does not depend on the range, so the caller can
+        // build it once and reuse it across range switches.
+        const daily = precomputedDaily || dailyBuckets(events);
         const today = startOfDay(Date.now());
 
         function entryAt(ts) {

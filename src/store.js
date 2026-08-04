@@ -30,25 +30,67 @@ const StatsStore = (function () {
         }
     }
 
+    /* Parsing the raw log dominates every render once a few thousand plays
+     * have piled up, so the result is cached against a cheap fingerprint of
+     * the stored string. Length plus the tail is enough: the collector only
+     * ever appends, and a rewrite changes the length. */
+    function signatureOf(raw) {
+        return raw === null ? "empty" : raw.length + ":" + raw.slice(-192);
+    }
+
+    const cache = { events: null, months: null };
+
+    // Callers must treat the returned array as read only, it is shared.
     function readEvents() {
-        const stored = readJSON(KEY_EVENTS);
+        const raw = readRaw(KEY_EVENTS);
+        const signature = signatureOf(raw);
+        if (cache.events && cache.events.signature === signature) return cache.events.value;
+
+        let stored = null;
+        try {
+            stored = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            stored = null;
+        }
+
         let events = null;
         if (Array.isArray(stored)) events = stored;
         else if (stored && Array.isArray(stored.events)) events = stored.events;
-        if (!events) return [];
 
-        return events
-            .filter((event) => event && typeof event.ts === "number")
-            .sort((a, b) => a.ts - b.ts);
+        const value = events
+            ? events.filter((event) => event && typeof event.ts === "number").sort((a, b) => a.ts - b.ts)
+            : [];
+
+        cache.events = { signature: signature, value: value };
+        return value;
     }
 
     // Monthly rollups of events that were already pruned from the raw log.
     function readMonths() {
-        const stored = readJSON(KEY_AGGREGATES);
-        if (!stored || typeof stored !== "object") return {};
-        if (stored.months && typeof stored.months === "object") return stored.months;
-        if (stored.v) return {};
-        return stored;
+        const raw = readRaw(KEY_AGGREGATES);
+        const signature = signatureOf(raw);
+        if (cache.months && cache.months.signature === signature) return cache.months.value;
+
+        let stored = null;
+        try {
+            stored = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            stored = null;
+        }
+
+        let value = {};
+        if (stored && typeof stored === "object") {
+            if (stored.months && typeof stored.months === "object") value = stored.months;
+            else if (!stored.v) value = stored;
+        }
+
+        cache.months = { signature: signature, value: value };
+        return value;
+    }
+
+    // Cheap change detector for the refresh poll, so an idle app does no work.
+    function signature() {
+        return signatureOf(readRaw(KEY_EVENTS)) + "/" + signatureOf(readRaw(KEY_AGGREGATES));
     }
 
     function readVersion() {
@@ -78,6 +120,7 @@ const StatsStore = (function () {
         readEvents: readEvents,
         readMonths: readMonths,
         readVersion: readVersion,
+        signature: signature,
         usedBytes: usedBytes,
         isInitialised: isInitialised
     };

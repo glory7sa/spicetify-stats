@@ -271,9 +271,16 @@ function StatsApp() {
             .catch((error) => setImportState({ status: "error", message: error.message || String(error) }));
     }
 
-    // The collector keeps writing while the app is open.
+    // The collector keeps writing while the app is open. Rebuilding is only
+    // worth it when something actually changed, which is rarely the case.
     React.useEffect(() => {
-        const id = setInterval(() => setRefresh((value) => value + 1), STATS_REFRESH_MS);
+        let seen = StatsStore.signature();
+        const id = setInterval(() => {
+            const current = StatsStore.signature();
+            if (current === seen) return;
+            seen = current;
+            setRefresh((value) => value + 1);
+        }, STATS_REFRESH_MS);
         return () => clearInterval(id);
     }, []);
 
@@ -292,9 +299,10 @@ function StatsApp() {
         () => StatsAggregate.build(snapshot.events, snapshot.months, range.days),
         [snapshot, range.days]
     );
+    const daily = React.useMemo(() => StatsAggregate.dailyBuckets(snapshot.events), [snapshot]);
     const calendar = React.useMemo(
-        () => StatsAggregate.calendar(snapshot.events, range),
-        [snapshot, range.days]
+        () => StatsAggregate.calendar(snapshot.events, range, daily),
+        [daily, range.days]
     );
 
     const listening = StatsFormat.durationParts(data.ms);
