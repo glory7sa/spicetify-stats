@@ -300,7 +300,6 @@ const StatsCharts = (function () {
     return {
         barChart: barChart,
         heatmap: heatmap,
-        heatmapLegend: heatmapLegend,
-        level: level
+        heatmapLegend: heatmapLegend
     };
 })();

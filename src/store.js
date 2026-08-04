@@ -116,7 +116,6 @@ const StatsStore = (function () {
     return {
         KEY_EVENTS: KEY_EVENTS,
         KEY_AGGREGATES: KEY_AGGREGATES,
-        KEY_VERSION: KEY_VERSION,
         readEvents: readEvents,
         readMonths: readMonths,
         readVersion: readVersion,

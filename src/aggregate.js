@@ -304,10 +304,7 @@ const StatsAggregate = (function () {
     return {
         RANGES: RANGES,
         DEFAULT_RANGE: DEFAULT_RANGE,
-        HEATMAP_MAX_WEEKS: HEATMAP_MAX_WEEKS,
         rangeById: rangeById,
-        rangeStart: rangeStart,
-        dayKey: dayKey,
         dailyBuckets: dailyBuckets,
         build: build,
         calendar: calendar
