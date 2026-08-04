@@ -333,7 +333,7 @@
     // Playback progress instead of wall clock: a paused player does not
     // advance, and clamping to the elapsed wall time discards forward seeks.
     // Suspending the machine or a throttled timer stay correct that way too.
-    function tick() {
+    function measure() {
         if (!session) return;
 
         const now = Date.now();
@@ -356,6 +356,22 @@
         }
     }
 
+    /* Everything below runs on Spotify's own event loop. An exception escaping
+     * here would either kill the interval or break the player's listener list,
+     * so both entry points swallow errors and drop the current session rather
+     * than take the collector down for the rest of the session. */
+    function guard(action) {
+        try {
+            action();
+        } catch (e) {
+            session = null;
+        }
+    }
+
+    function tick() {
+        guard(measure);
+    }
+
     /* ------------------------------------------------------------------- boot */
 
     async function main() {
@@ -363,17 +379,20 @@
             await new Promise((resolve) => setTimeout(resolve, 100));
         }
 
-        ensureSchema();
+        guard(ensureSchema);
 
         Spicetify.Player.addEventListener("songchange", (event) => {
-            const data = event && event.data;
-            const item = (data && (data.item || data.track)) || (Spicetify.Player.data && Spicetify.Player.data.item);
-            startSession(item);
+            guard(() => {
+                const data = event && event.data;
+                const item =
+                    (data && (data.item || data.track)) || (Spicetify.Player.data && Spicetify.Player.data.item);
+                startSession(item);
+            });
         });
 
         // Something may already be playing when the extension loads.
         if (Spicetify.Player.data && Spicetify.Player.data.item) {
-            startSession(Spicetify.Player.data.item);
+            guard(() => startSession(Spicetify.Player.data.item));
         }
 
         setInterval(tick, TICK_MS);

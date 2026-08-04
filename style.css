@@ -151,6 +151,16 @@
     line-height: 1.5;
 }
 
+.stats-error-message {
+    margin: 0 0 12px;
+    padding: 12px 14px;
+    border-radius: 6px;
+    background-color: var(--spice-main);
+    font-family: monospace;
+    font-size: 0.8125rem;
+    word-break: break-word;
+}
+
 .stats-footer {
     margin: 8px 0 0;
     color: var(--spice-subtext);

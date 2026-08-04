@@ -241,6 +241,54 @@ function StatsApp() {
     ]);
 }
 
+/* A throwing render blanks Spotify's whole main view, so the tree is wrapped
+ * in a boundary that shows the message instead. The class is built lazily
+ * because Spicetify.React does not exist yet when this file is evaluated. */
+let statsBoundaryClass = null;
+
+function statsErrorBoundary() {
+    if (statsBoundaryClass) return statsBoundaryClass;
+
+    class StatsErrorBoundary extends Spicetify.React.Component {
+        constructor(props) {
+            super(props);
+            this.state = { error: null };
+        }
+
+        static getDerivedStateFromError(error) {
+            return { error: error };
+        }
+
+        render() {
+            if (!this.state.error) return this.props.children;
+
+            const message = (this.state.error && this.state.error.message) || String(this.state.error);
+            return statsEl("div", { className: "stats-app" }, [
+                statsEl("h1", { key: "title", className: "stats-title" }, "Stats"),
+                statsCard(
+                    "error",
+                    "This page failed to render",
+                    null,
+                    [
+                        statsEl("p", { key: "message", className: "stats-error-message" }, message),
+                        statsEl(
+                            "p",
+                            { key: "hint", className: "stats-empty" },
+                            "Your listening history is untouched - it lives in localStorage, not in this view. " +
+                                "Switching away from the app and back retries the render."
+                        )
+                    ],
+                    "stats-card-wide"
+                )
+            ]);
+        }
+    }
+
+    statsBoundaryClass = StatsErrorBoundary;
+    return statsBoundaryClass;
+}
+
 function render() {
-    return Spicetify.React.createElement(StatsApp, null);
+    const React = Spicetify.React;
+    return React.createElement(statsErrorBoundary(), null, React.createElement(StatsApp, null));
 }

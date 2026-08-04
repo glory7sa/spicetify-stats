@@ -11,9 +11,19 @@ const StatsStore = (function () {
     const KEY_EVENTS = PREFIX + "events";
     const KEY_AGGREGATES = PREFIX + "aggregates";
 
+    // localStorage itself can throw (disabled storage, privacy modes), not
+    // just JSON.parse, so every access goes through here.
+    function readRaw(key) {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            return null;
+        }
+    }
+
     function readJSON(key) {
         try {
-            const raw = localStorage.getItem(key);
+            const raw = readRaw(key);
             return raw ? JSON.parse(raw) : null;
         } catch (e) {
             return null;
@@ -42,23 +52,33 @@ const StatsStore = (function () {
     }
 
     function readVersion() {
-        return localStorage.getItem(KEY_VERSION) || "-";
+        return readRaw(KEY_VERSION) || "-";
     }
 
     // Rough footprint of the collector's data; localStorage stores UTF-16.
     function usedBytes() {
         let total = 0;
         for (const key of [KEY_EVENTS, KEY_AGGREGATES, KEY_VERSION]) {
-            const raw = localStorage.getItem(key);
+            const raw = readRaw(key);
             if (raw) total += (raw.length + key.length) * 2;
         }
         return total;
     }
 
+    // True when the collector has never run, which the views report instead of
+    // showing an empty dashboard that looks broken.
+    function isInitialised() {
+        return readRaw(KEY_VERSION) !== null;
+    }
+
     return {
+        KEY_EVENTS: KEY_EVENTS,
+        KEY_AGGREGATES: KEY_AGGREGATES,
+        KEY_VERSION: KEY_VERSION,
         readEvents: readEvents,
         readMonths: readMonths,
         readVersion: readVersion,
-        usedBytes: usedBytes
+        usedBytes: usedBytes,
+        isInitialised: isInitialised
     };
 })();
