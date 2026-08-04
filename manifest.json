@@ -2,6 +2,6 @@
     "name": "Stats",
     "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"><path d=\"M2.8 13.2V9.4M8 13.2V2.8M13.2 13.2V6.6\"/></svg>",
     "active-icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" fill=\"currentColor\"><rect x=\"1.4\" y=\"8.2\" width=\"3.2\" height=\"6.4\" rx=\"1.2\"/><rect x=\"6.4\" y=\"1.6\" width=\"3.2\" height=\"13\" rx=\"1.2\"/><rect x=\"11.4\" y=\"5.4\" width=\"3.2\" height=\"9.2\" rx=\"1.2\"/></svg>",
-    "subfiles": [],
+    "subfiles": ["src/format.js", "src/store.js", "src/aggregate.js", "src/charts.js"],
     "subfiles_extension": ["extension.js"]
 }
