@@ -2,8 +2,10 @@
  * Semantic colors only, so the app follows whatever theme is active.
  */
 
+/* Spotify's top bar floats over the first ~64px of the scroll container, so
+ * the page has to start below it or the title ends up behind the blur. */
 .stats-app {
-    padding: 32px 32px 80px;
+    padding: 72px 32px 80px;
     color: var(--spice-text);
     max-width: 1600px;
 }
