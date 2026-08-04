@@ -9,11 +9,14 @@ const PREFIX = "spicetify-stats:";
 const KEY_VERSION = PREFIX + "version";
 const KEY_EVENTS = PREFIX + "events";
 
+// Schema v2 wraps the events in a versioned envelope; v1 stored a bare array.
 function readEvents() {
     try {
         const raw = localStorage.getItem(KEY_EVENTS);
-        const events = raw ? JSON.parse(raw) : [];
-        return Array.isArray(events) ? events : [];
+        const stored = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(stored)) return stored;
+        if (stored && Array.isArray(stored.events)) return stored.events;
+        return [];
     } catch (e) {
         return [];
     }

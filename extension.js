@@ -14,7 +14,9 @@
     const KEY_EVENTS = PREFIX + "events";
     const KEY_AGGREGATES = PREFIX + "aggregates";
 
-    const SCHEMA_VERSION = 1;
+    // Bumped to 2: stored blobs carry their own version field now, and local
+    // files are no longer logged.
+    const SCHEMA_VERSION = 2;
 
     // A track only counts as played after 30s or half its length, whichever
     // comes first - otherwise skipping through a playlist skews everything.
@@ -22,6 +24,10 @@
     const MIN_PLAY_RATIO = 0.5;
 
     const TICK_MS = 1000;
+
+    // Below this the player sits at the beginning of a track, which is how a
+    // genuine restart is told apart from a repeated songchange event.
+    const RESTART_PROGRESS_MS = 3000;
 
     // localStorage is small, so raw events are kept for half a year and then
     // folded into monthly aggregates.
@@ -60,12 +66,51 @@
         }
     }
 
+    /* Every stored blob carries its own `v`, so a copied or exported payload
+     * stays self-describing instead of relying on the separate version key.
+     * Readers still accept the v1 shape (bare array / bare month map). */
+
+    function readEvents() {
+        const stored = readJSON(KEY_EVENTS, null);
+        if (Array.isArray(stored)) return stored;
+        if (stored && Array.isArray(stored.events)) return stored.events;
+        return [];
+    }
+
+    function writeEvents(events) {
+        return writeJSON(KEY_EVENTS, { v: SCHEMA_VERSION, events: events });
+    }
+
+    function readAggregates() {
+        const stored = readJSON(KEY_AGGREGATES, null);
+        if (!stored || typeof stored !== "object") return {};
+        if (stored.months && typeof stored.months === "object") return stored.months;
+        if (stored.v) return {};
+        return stored;
+    }
+
+    function writeAggregates(months) {
+        return writeJSON(KEY_AGGREGATES, { v: SCHEMA_VERSION, months: months });
+    }
+
+    function migrate(from) {
+        if (from < 2) {
+            // v1 stored bare containers and still logged local files. Those
+            // are dropped here so they cannot leak into future aggregates.
+            writeEvents(readEvents().filter((event) => event && isLoggableUri(event.uri)));
+            writeAggregates(readAggregates());
+        }
+    }
+
     function ensureSchema() {
-        const stored = Number(localStorage.getItem(KEY_VERSION));
+        const stored = Number(localStorage.getItem(KEY_VERSION)) || 0;
         if (stored === SCHEMA_VERSION) return;
         // Newer schema than this build knows: leave the data untouched.
         if (stored > SCHEMA_VERSION) return;
-        // Future migrations for stored < SCHEMA_VERSION hook in here.
+
+        if (stored > 0) migrate(stored);
+        else if (localStorage.getItem(KEY_EVENTS)) migrate(1); // pre-versioning data
+
         localStorage.setItem(KEY_VERSION, String(SCHEMA_VERSION));
     }
 
@@ -87,7 +132,7 @@
     // Folds raw events into per-month buckets so the details can be dropped.
     function foldIntoAggregates(events) {
         if (!events.length) return;
-        const aggregates = readJSON(KEY_AGGREGATES, {});
+        const aggregates = readAggregates();
 
         for (const event of events) {
             const key = monthKey(event.ts);
@@ -119,7 +164,7 @@
             aggregates[key].tracks = trimMap(aggregates[key].tracks, AGGREGATE_TOP_N, (v) => v.plays);
         }
 
-        writeJSON(KEY_AGGREGATES, aggregates);
+        writeAggregates(aggregates);
     }
 
     // Returns the events worth keeping raw; everything else goes to aggregates.
@@ -144,16 +189,15 @@
     }
 
     function appendEvent(event) {
-        let events = readJSON(KEY_EVENTS, []);
-        if (!Array.isArray(events)) events = [];
+        let events = readEvents();
         events.push(event);
         events = compactEvents(events, false);
 
-        if (writeJSON(KEY_EVENTS, events)) return;
+        if (writeEvents(events)) return;
 
         // Quota hit: aggregate away the older half and retry once.
         events = compactEvents(events, true);
-        if (writeJSON(KEY_EVENTS, events)) return;
+        if (writeEvents(events)) return;
 
         if (!quotaWarned) {
             quotaWarned = true;
@@ -181,14 +225,29 @@
         return artists;
     }
 
+    // Only catalogue tracks are counted. Podcast episodes (spotify:episode:),
+    // local files (spotify:local:) and ads (spotify:ad:) all fail this test.
+    function isLoggableUri(uri) {
+        return typeof uri === "string" && uri.startsWith("spotify:track:");
+    }
+
+    // Some Spotify builds hand out ads with a regular track uri, so the
+    // metadata is checked as well.
+    function isAdvertisement(item, meta) {
+        return (
+            item.provider === "ad" ||
+            String(meta.is_advertisement) === "true" ||
+            meta["ad.id"] != null
+        );
+    }
+
     function readTrack(item) {
         if (!item) return null;
 
         const meta = item.metadata || {};
         const uri = item.uri || meta.uri || "";
-        const type = item.type || uri.split(":")[1] || "";
-        // Podcasts and ads are not part of the listening stats.
-        if (type !== "track" && type !== "local") return null;
+        if (!isLoggableUri(uri)) return null;
+        if (isAdvertisement(item, meta)) return null;
 
         let durationMs = Number(
             (item.duration && item.duration.milliseconds) != null
@@ -216,20 +275,50 @@
     /* ---------------------------------------------------------------- session */
 
     let session = null;
+    let lastLog = null;
 
     function progressMs() {
         const progress = Number(Spicetify.Player.getProgress());
         return Number.isFinite(progress) && progress > 0 ? progress : 0;
     }
 
+    // Spicetify can fire songchange more than once for the same track. Only a
+    // player sitting at the beginning is a real restart (repeat one); anything
+    // else keeps the running session, including its accumulated time and its
+    // already-logged flag.
     function startSession(item) {
         const track = readTrack(item);
-        session = track
-            ? { track: track, playedMs: 0, lastTick: Date.now(), lastProgress: progressMs(), logged: false }
-            : null;
+        if (!track) {
+            session = null;
+            return;
+        }
+
+        const progress = progressMs();
+        if (session && session.track.uri === track.uri && progress > RESTART_PROGRESS_MS) {
+            session.lastTick = Date.now();
+            session.lastProgress = progress;
+            return;
+        }
+
+        session = {
+            track: track,
+            playedMs: 0,
+            lastTick: Date.now(),
+            lastProgress: progress,
+            logged: false
+        };
+    }
+
+    // Second guard against inflated counts: a repeat play has to accumulate a
+    // full threshold of fresh playback anyway, so no genuine replay can ever
+    // land inside this window - only an event storm can.
+    function canLog(track) {
+        if (!lastLog || lastLog.uri !== track.uri) return true;
+        return Date.now() - lastLog.ts >= playThreshold(track.durationMs);
     }
 
     function logSession() {
+        lastLog = { uri: session.track.uri, ts: Date.now() };
         appendEvent({
             ts: Date.now(),
             uri: session.track.uri,
@@ -263,7 +352,7 @@
             // Written the moment the threshold is crossed, so a hard quit of
             // Spotify cannot lose a play that already counted.
             session.logged = true;
-            logSession();
+            if (canLog(session.track)) logSession();
         }
     }
 
