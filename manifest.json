@@ -1,7 +1,28 @@
 {
-    "name": "Stats",
+    "name": "Spicetify Stats",
+    "description": "A local Spotify listening statistics dashboard with top artists, top tracks, listening heatmaps and history import.",
+
+    "preview": "preview.png",
+    "readme": "README.md",
+
+    "authors": [
+        {
+            "name": "Chrisss666",
+            "url": "https://github.com/Chrisss666"
+        }
+    ],
+
+    "tags": [
+        "stats",
+        "statistics",
+        "listening-history",
+        "dashboard"
+    ],
+
     "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M5.3 18.8V13.4M12 18.8V5.2M18.7 18.8V9.8\"/></svg>",
+
     "active-icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"currentColor\"><rect x=\"3.6\" y=\"13.8\" width=\"3.4\" height=\"6\" rx=\"1.7\"/><rect x=\"10.3\" y=\"4.2\" width=\"3.4\" height=\"15.6\" rx=\"1.7\"/><rect x=\"17\" y=\"9\" width=\"3.4\" height=\"10.8\" rx=\"1.7\"/></svg>",
+
     "subfiles": [
         "src/format.js",
         "src/store.js",
@@ -10,5 +31,8 @@
         "src/import.js",
         "src/views.js"
     ],
-    "subfiles_extension": ["extension.js"]
+
+    "subfiles_extension": [
+        "extension.js"
+    ]
 }
