@@ -20,6 +20,12 @@
 
 <br>
 
+<p align="center">
+  <img src="preview.png" alt="404Lyrics Preview" width="900">
+</p>
+
+<br>
+
 Spicetify Stats tracks what you actually listen to and turns it into a clean,
 local dashboard with top artists, top tracks and a GitHub-style listening
 heatmap across recent periods or your complete stored history.
