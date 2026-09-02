@@ -1,11 +1,31 @@
-# Stats
+<p align="center">
+  <img src="https://shieldcn.dev/header/gradient.svg?title=Spicetify+Stats&subtitle=Your+Spotify+listening+history%2C+visualized+locally&mode=dark&font=geist">
+</p>
 
-A [Spicetify](https://spicetify.app) custom app that logs what you listen to,
-locally, and turns it into a dashboard: top artists, top tracks, and a
-GitHub-style listening heatmap over 7, 30 or 90 days, or your whole history.
+<br>
 
-Nothing is uploaded anywhere. The listening log lives in Spotify's own
-`localStorage` and never leaves the machine.
+<p align="center">
+  <b>A local listening statistics dashboard for Spicetify.</b>
+</p>
+
+<p align="center">
+  Top Artists · Top Tracks · Listening Heatmap · Spotify History Import
+</p>
+
+<p align="center">
+  <a href="https://404brainnotfound.at">Portfolio</a>
+  ·
+  <a href="https://404brainnotfound.at/en/projects/">Other projects</a>
+</p>
+
+<br>
+
+Spicetify Stats tracks what you actually listen to and turns it into a clean,
+local dashboard with top artists, top tracks and a GitHub-style listening
+heatmap across recent periods or your complete stored history.
+
+Nothing is uploaded anywhere. Your listening history stays inside Spotify's
+local storage on your machine.
 
 ## Install
 
