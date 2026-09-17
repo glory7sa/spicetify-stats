@@ -2,7 +2,6 @@
     "name": "Spicetify Stats",
     "description": "A local Spotify listening statistics dashboard with top artists, top tracks, listening heatmaps and history import.",
 
-    "preview": "preview.png",
     "readme": "README.md",
 
     "authors": [
@@ -29,7 +28,8 @@
         "src/aggregate.js",
         "src/charts.js",
         "src/import.js",
-        "src/views.js"
+        "src/views.js",
+        "src/design.js"
     ],
 
     "subfiles_extension": [
