@@ -6,10 +6,10 @@
  */
 const StatsAggregate = (function () {
     const RANGES = [
-        { id: "7d", label: "7 days", days: 7 },
-        { id: "30d", label: "30 days", days: 30 },
-        { id: "90d", label: "90 days", days: 90 },
-        { id: "all", label: "All time", days: null }
+        { id: "7d", label: "7 дней", days: 7 },
+        { id: "30d", label: "30 дней", days: 30 },
+        { id: "90d", label: "90 дней", days: 90 },
+        { id: "all", label: "Всё время", days: null }
     ];
 
     const HEATMAP_MAX_WEEKS = 53;
